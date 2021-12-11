@@ -1,0 +1,313 @@
+import socket
+import os
+import threading
+from typing import Sequence
+import LEA
+from Crypto import Random
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_OAEP
+import signal
+import secrets
+import time
+from bytebuffer import ByteBuffer
+import hashlib
+from time import sleep
+
+
+# cmdID
+SSI_COMMAND = 17
+SET_SSID_COMMAND = 18
+SSID_PASS_COMMAND = 19
+SET_SSID_PASS_COMMAND = 20
+REGION_COMMAND = 21
+SET_REGION_COMMAND = 22
+SET_EV_COMMAND = 52
+DATETIME_COMMAND = 70
+STICK_COMMAND = 80
+LOG_HEADER_WRITE_COMMAND = 4176
+LOG_DATA_WRITE_COMMAND = 4177
+LOG_CONFIGURATION_COMMAND = 4178
+WIFI_SIGNAL_COMMAND = 26
+VIDEO_BIT_RATE_COMMAND = 40
+LIGHT_STRENGTH_COMMAND = 53
+VERSION_STRING_COMMAND = 69
+ACTIVATION_TIME_COMMAND = 71
+LOADER_VERSION_COMMAND = 73
+STATUS_COMMAND = 86
+ALT_LIMIT_COMMAND = 4182
+LOW_BATT_THRESHOLD_COMMAND = 4183
+ATT_ANGLE_COMMAND = 4185
+SET_JPEG_QUALIT_COMMAND = 55 
+TAKEOFF_COMMAND = 84
+LANDING_COMMAND = 85
+SET_ALT_LIMIT_COMMAND = 88
+FLIP_COMMAND = 92
+THROW_FLY_COMMAND = 93
+PALM_LANDING_COMMAND = 94
+PLANE_CALIBRATION_COMMAND = 4180
+SET_LOW_BATTERY_THRESHOLD_COMMAND = 4181
+SET_ATTITUDE_ANGLE_COMMAND = 4184
+ERROR1_COMMAND = 67
+ERROR2_COMMAND = 68
+FILE_SIZE_COMMAND = 98
+FILE_DATA_COMMAND = 99
+FILE_COMPLETE_COMMAND = 100
+HANDLE_IMU_ANGLE_COMMAND = 90
+SET_DYN_ADJ_RATE_COMMAND = 33
+SET_EIS_COMMAND = 36
+BOUNCE_COMMAND = 4179
+
+# CRC-8 Table
+CRC8_Table = [
+    0x00, 0x5e, 0xbc, 0xe2, 0x61, 0x3f, 0xdd, 0x83, 0xc2, 0x9c, 0x7e, 0x20, 0xa3, 0xfd, 0x1f, 0x41,
+    0x9d, 0xc3, 0x21, 0x7f, 0xfc, 0xa2, 0x40, 0x1e, 0x5f, 0x01, 0xe3, 0xbd, 0x3e, 0x60, 0x82, 0xdc,
+    0x23, 0x7d, 0x9f, 0xc1, 0x42, 0x1c, 0xfe, 0xa0, 0xe1, 0xbf, 0x5d, 0x03, 0x80, 0xde, 0x3c, 0x62,
+    0xbe, 0xe0, 0x02, 0x5c, 0xdf, 0x81, 0x63, 0x3d, 0x7c, 0x22, 0xc0, 0x9e, 0x1d, 0x43, 0xa1, 0xff,
+    0x46, 0x18, 0xfa, 0xa4, 0x27, 0x79, 0x9b, 0xc5, 0x84, 0xda, 0x38, 0x66, 0xe5, 0xbb, 0x59, 0x07,
+    0xdb, 0x85, 0x67, 0x39, 0xba, 0xe4, 0x06, 0x58, 0x19, 0x47, 0xa5, 0xfb, 0x78, 0x26, 0xc4, 0x9a,
+    0x65, 0x3b, 0xd9, 0x87, 0x04, 0x5a, 0xb8, 0xe6, 0xa7, 0xf9, 0x1b, 0x45, 0xc6, 0x98, 0x7a, 0x24,
+    0xf8, 0xa6, 0x44, 0x1a, 0x99, 0xc7, 0x25, 0x7b, 0x3a, 0x64, 0x86, 0xd8, 0x5b, 0x05, 0xe7, 0xb9,
+    0x8c, 0xd2, 0x30, 0x6e, 0xed, 0xb3, 0x51, 0x0f, 0x4e, 0x10, 0xf2, 0xac, 0x2f, 0x71, 0x93, 0xcd,
+    0x11, 0x4f, 0xad, 0xf3, 0x70, 0x2e, 0xcc, 0x92, 0xd3, 0x8d, 0x6f, 0x31, 0xb2, 0xec, 0x0e, 0x50,
+    0xaf, 0xf1, 0x13, 0x4d, 0xce, 0x90, 0x72, 0x2c, 0x6d, 0x33, 0xd1, 0x8f, 0x0c, 0x52, 0xb0, 0xee,
+    0x32, 0x6c, 0x8e, 0xd0, 0x53, 0x0d, 0xef, 0xb1, 0xf0, 0xae, 0x4c, 0x12, 0x91, 0xcf, 0x2d, 0x73,
+    0xca, 0x94, 0x76, 0x28, 0xab, 0xf5, 0x17, 0x49, 0x08, 0x56, 0xb4, 0xea, 0x69, 0x37, 0xd5, 0x8b,
+    0x57, 0x09, 0xeb, 0xb5, 0x36, 0x68, 0x8a, 0xd4, 0x95, 0xcb, 0x29, 0x77, 0xf4, 0xaa, 0x48, 0x16,
+    0xe9, 0xb7, 0x55, 0x0b, 0x88, 0xd6, 0x34, 0x6a, 0x2b, 0x75, 0x97, 0xc9, 0x4a, 0x14, 0xf6, 0xa8,
+    0x74, 0x2a, 0xc8, 0x96, 0x15, 0x4b, 0xa9, 0xf7, 0xb6, 0xe8, 0x0a, 0x54, 0xd7, 0x89, 0x6b, 0x35,
+]
+
+# CRC-16 table
+CRC16_Table = [
+    0x0000, 0x1189, 0x2312, 0x329b, 0x4624, 0x57ad, 0x6536, 0x74bf, 0x8c48, 0x9dc1, 0xaf5a, 0xbed3, 0xca6c, 0xdbe5, 0xe97e, 0xf8f7,
+    0x1081, 0x0108, 0x3393, 0x221a, 0x56a5, 0x472c, 0x75b7, 0x643e, 0x9cc9, 0x8d40, 0xbfdb, 0xae52, 0xdaed, 0xcb64, 0xf9ff, 0xe876,
+    0x2102, 0x308b, 0x0210, 0x1399, 0x6726, 0x76af, 0x4434, 0x55bd, 0xad4a, 0xbcc3, 0x8e58, 0x9fd1, 0xeb6e, 0xfae7, 0xc87c, 0xd9f5,
+    0x3183, 0x200a, 0x1291, 0x0318, 0x77a7, 0x662e, 0x54b5, 0x453c, 0xbdcb, 0xac42, 0x9ed9, 0x8f50, 0xfbef, 0xea66, 0xd8fd, 0xc974,
+    0x4204, 0x538d, 0x6116, 0x709f, 0x0420, 0x15a9, 0x2732, 0x36bb, 0xce4c, 0xdfc5, 0xed5e, 0xfcd7, 0x8868, 0x99e1, 0xab7a, 0xbaf3,
+    0x5285, 0x430c, 0x7197, 0x601e, 0x14a1, 0x0528, 0x37b3, 0x263a, 0xdecd, 0xcf44, 0xfddf, 0xec56, 0x98e9, 0x8960, 0xbbfb, 0xaa72,
+    0x6306, 0x728f, 0x4014, 0x519d, 0x2522, 0x34ab, 0x0630, 0x17b9, 0xef4e, 0xfec7, 0xcc5c, 0xddd5, 0xa96a, 0xb8e3, 0x8a78, 0x9bf1,
+    0x7387, 0x620e, 0x5095, 0x411c, 0x35a3, 0x242a, 0x16b1, 0x0738, 0xffcf, 0xee46, 0xdcdd, 0xcd54, 0xb9eb, 0xa862, 0x9af9, 0x8b70,
+    0x8408, 0x9581, 0xa71a, 0xb693, 0xc22c, 0xd3a5, 0xe13e, 0xf0b7, 0x0840, 0x19c9, 0x2b52, 0x3adb, 0x4e64, 0x5fed, 0x6d76, 0x7cff,
+    0x9489, 0x8500, 0xb79b, 0xa612, 0xd2ad, 0xc324, 0xf1bf, 0xe036, 0x18c1, 0x0948, 0x3bd3, 0x2a5a, 0x5ee5, 0x4f6c, 0x7df7, 0x6c7e,
+    0xa50a, 0xb483, 0x8618, 0x9791, 0xe32e, 0xf2a7, 0xc03c, 0xd1b5, 0x2942, 0x38cb, 0x0a50, 0x1bd9, 0x6f66, 0x7eef, 0x4c74, 0x5dfd,
+    0xb58b, 0xa402, 0x9699, 0x8710, 0xf3af, 0xe226, 0xd0bd, 0xc134, 0x39c3, 0x284a, 0x1ad1, 0x0b58, 0x7fe7, 0x6e6e, 0x5cf5, 0x4d7c,
+    0xc60c, 0xd785, 0xe51e, 0xf497, 0x8028, 0x91a1, 0xa33a, 0xb2b3, 0x4a44, 0x5bcd, 0x6956, 0x78df, 0x0c60, 0x1de9, 0x2f72, 0x3efb,
+    0xd68d, 0xc704, 0xf59f, 0xe416, 0x90a9, 0x8120, 0xb3bb, 0xa232, 0x5ac5, 0x4b4c, 0x79d7, 0x685e, 0x1ce1, 0x0d68, 0x3ff3, 0x2e7a,
+    0xe70e, 0xf687, 0xc41c, 0xd595, 0xa12a, 0xb0a3, 0x8238, 0x93b1, 0x6b46, 0x7acf, 0x4854, 0x59dd, 0x2d62, 0x3ceb, 0x0e70, 0x1ff9,
+    0xf78f, 0xe606, 0xd49d, 0xc514, 0xb1ab, 0xa022, 0x92b9, 0x8330, 0x7bc7, 0x6a4e, 0x58d5, 0x495c, 0x3de3, 0x2c6a, 0x1ef1, 0x0f78
+]
+
+
+def _calculate_CRC8(buf, size):
+    i = 0
+    seed = 0x77
+    while size > 0:
+        seed = CRC8_Table[(seed ^ buf[i]) & 0xff]
+        i = i + 1
+        size = size - 1
+
+    return seed
+
+
+def _calculate_CRC16(buf, size):
+    i = 0
+    size = 3
+    seed = 0x3692
+    while size > 0:
+        seed = CRC16_Table[(seed ^ buf[i]) & 0xff] ^ (seed >> 8)
+        i = i + 1
+        size = size - 1
+
+    return seed
+
+def bool_OTP_Handshake():
+    if Time_Sync_Timer == False:
+        print("Time_Sync_Fail. Try Again")
+        os.kill(os.getpid(), signal.SIGKILL)
+
+
+def input_cmdID(command):
+    cmdID = 0
+    payload = None
+
+    if command == 'land':
+        cmdID = LANDING_COMMAND
+    
+    elif command == 'takeoff':
+        cmdID = TAKEOFF_COMMAND
+
+    else:
+        print('bad instruction\n')
+        retry = input('Command: ')
+        input_cmdID(retry)
+
+    return cmdID, payload
+
+
+def make_control_packet(command, seq):
+    udp_data = None
+    cmdID = None
+    len = 0
+
+    pactype = 0x68
+
+    cmdID, payload = input_cmdID(command)
+
+    size = len(payload) if payload != None else 0
+    size = 11 + size
+
+    udp_data = ByteBuffer.allocate(size)
+    udp_data.clear()
+    udp_data.put_ULInt8(0xCC)
+    udp_data.put_ULInt16(size << 3)
+
+    CRC_8 = _calculate_CRC8(udp_data.get_array(), 3)
+    udp_data.put_ULInt8(CRC_8)
+
+    udp_data.put_ULInt8(pactype)
+    udp_data.put_ULInt16(cmdID)
+
+    udp_data.put_ULInt16(seq)
+
+    if payload:
+        udp_data.put(payload)
+    
+    CRC_16 = _calculate_CRC16(udp_data.get_array(), size - 2);
+    udp_data.put_ULInt16(CRC_16)
+    udp_data.flip()
+
+    seq += 1
+
+    return udp_data, seq
+
+
+def received_message(server, lea_key, nonce):
+    while True:
+        encrypted_msg, server_addr = server.recvfrom(1024)
+
+        receive_leaGCM = LEA.GCM(False, lea_key, nonce, aad_OTP, 16)
+        receive_leaGCM.update(encrypted_msg)
+        command = receive_leaGCM.final()
+
+        if command == FLAG_QUIT:
+            print("Shutdown")
+            os.kill(os.getpid(), signal.SIGKILL)
+
+        else:
+            print("Server's Encrypted Message: ", command)
+
+
+def send_message(socketClient, lea_key, nonce, server_addr):
+    seq = 0
+
+    while True:
+        command = input("Command: ")
+        msg, seq = make_control_packet(command, seq)
+
+        msg = msg.get_array()
+
+        send_leaGCM = LEA.GCM(True, lea_key, nonce, aad_OTP, 16)
+        ct = send_leaGCM.update(msg)
+        ct += send_leaGCM.final()
+        socketClient.sendto(ct, server_addr)
+
+        if msg == FLAG_QUIT:
+            os.kill(os.getpid(), signal.SIGKILL)
+
+        else:
+            print(ct)
+
+
+def OTP(aad):
+    global aad_OTP 
+    aad_OTP = aad
+
+    hasher = hashlib.md5()
+
+    while True:
+        sleep(30)
+
+        hasher.update(aad_OTP)
+        aad_OTP = hasher.hexdigest()
+
+        aad_OTP = bytes(aad_OTP, encoding = 'utf-8')
+        aad_OTP = bytearray(aad_OTP)
+
+
+if __name__ == "__main__":
+
+    global Time_Sync_Timer
+    
+    server = ""
+    Time_Sync_Timer = False
+
+    tevent = threading.Event()
+
+    client_random_8bytes = secrets.token_hex(8)
+    nonce_16 = client_random_8bytes + client_random_8bytes[::-1]
+    nonce = bytes(nonce_16, encoding = 'utf-8')
+    nonce = bytearray(nonce)
+
+    FLAG_READY = "Ready"
+    FLAG_QUIT = "quit"
+
+    # Create Public_Key & Private_Key
+    random = Random.new().read
+    RSAkey = RSA.generate(1024, random)
+    client_public_key = RSAkey.publickey().exportKey()
+    client_private_key = RSAkey.exportKey()
+
+    host = input("Server IP Address : ")
+    port = int(input("Port Number: "))
+
+    check = True
+
+    try:
+        server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    except BaseException:
+        print("Check Server IP Address or Port number")
+
+    if check is True:
+        server.sendto(nonce + b"\r\n" + client_public_key, (host, port))
+
+        encrypted_aad_and_lea_key, server_addr = server.recvfrom(4072)
+
+        client_split = encrypted_aad_and_lea_key.split(b"\r\n", maxsplit=1)
+
+        encrypted_aad = client_split[0]
+        encrypted_lea_key = client_split[1]
+
+        private_key = RSA.importKey(client_private_key)
+        chipher = PKCS1_OAEP.new(private_key)
+
+        aad = chipher.decrypt(encrypted_aad)
+        lea_key = chipher.decrypt(encrypted_lea_key)
+        
+        # Time Syncronization
+        Time_Sync_Handshake = server.recv(256)
+        Time_Sync_timer = threading.Timer(5, bool_OTP_Handshake)
+        Time_Sync_timer.start()
+
+        if Time_Sync_Handshake == b'Server_time_Sync':
+            
+            Time_Sync_Timer = True
+
+            server.sendto(b'Client_time_Sync', (host, port))
+            print('Time Sync Success')
+
+            threading_otp = threading.Thread(target = OTP, args = [aad])
+            threading_otp.start()
+   
+            threading_received_command = threading.Thread(target = received_message, args = [server, lea_key, nonce])
+            threading_received_command.start()
+
+            threading_send_command = threading.Thread(target = send_message, args = [server, lea_key, nonce, server_addr])
+            threading_send_command.start()
+
+        else:
+            print('Time Sync Fail..')
+            os.kill(os.getpid(), signal.SIGKILL)
+
+        
+
