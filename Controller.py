@@ -201,7 +201,7 @@ def send_message(socketClient, lea_key, nonce, server_addr):
     seq = 0
 
     while True:
-        command = input("Command: ")
+        command = input("\nCommand: ")
         msg, seq = make_control_packet(command, seq)
 
         msg = msg.get_array()
@@ -215,7 +215,7 @@ def send_message(socketClient, lea_key, nonce, server_addr):
             os.kill(os.getpid(), signal.SIGKILL)
 
         else:
-            print(ct)
+            print("Encrypt Packet:", ct)
 
 
 def OTP(aad):
@@ -243,9 +243,8 @@ if __name__ == "__main__":
 
     tevent = threading.Event()
 
-    client_random_8bytes = secrets.token_hex(8)
-    nonce_16 = client_random_8bytes + client_random_8bytes[::-1]
-    nonce = bytes(nonce_16, encoding = 'utf-8')
+    nonce_rand = secrets.token_hex(4)
+    nonce = bytes(nonce_rand, encoding = 'utf-8')
     nonce = bytearray(nonce)
 
     FLAG_READY = "Ready"

@@ -77,11 +77,11 @@ def control_signal(control_id):
     control_id = int(control_id)
 
     if control_id == 54:
-        print('takeoff')
+        print('Command: takeoff')
         signal = 'takeoff'
     
     elif control_id == 55:
-        print('land')
+        print('Command: land')
         signal = 'land'
     
     else:
@@ -102,7 +102,7 @@ def received_message(server, lea_key, nonce):
             print("Shutdown")
             os.kill(os.getpid(), signal.SIGKILL)
         else:
-            print("Server's Encrypted Message: ", command[0:1].hex())
+            print("\nDecrypt Packet:", command)
 
         if command[0:1].hex() == 'cc':
             control_id = command[5:6].hex()
@@ -149,20 +149,20 @@ if __name__ == "__main__":
     port = 8888
     server = ""
 
-    lea_key_16 = secrets.token_hex(16)
-    server_random_8bytes = secrets.token_hex(8)
     CONNECTION_LIST = []
 
     FLAG_READY = "Ready"
     FLAG_QUIT = "exit"
 
-    lea_key = bytes(lea_key_16, encoding = 'utf-8')
+
+    lea_key_rand = secrets.token_hex(8)
+    lea_key = bytes(lea_key_rand, encoding = 'utf-8')
     lea_key = bytearray(lea_key)
 
     nonce = ""
 
-    aad_16 = server_random_8bytes + server_random_8bytes[::-1]
-    global aad
+    server_rand = secrets.token_hex(8)
+    aad_16 = server_rand
     aad = bytes(aad_16, encoding = 'utf-8')
     aad = bytearray(aad)
 
